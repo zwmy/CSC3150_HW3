@@ -9,7 +9,7 @@
 struct spinlock tickslock;
 uint ticks;
 
-#define MLFQ_DEBUG 1
+#define MLFQ_DEBUG 1//be used for print info. DONE.
 
 extern char trampoline[], uservec[];
 
@@ -87,32 +87,27 @@ usertrap(void)
     struct proc *p = myproc();
     if(p != 0 && p->state == RUNNING) {
       acquire(&p->lock);
-       // 递减当前运行进程的时间片
       if(p->remaining_ticks > 0) {
         p->remaining_ticks--;
       }
-      // 如果时间片用完，设置重新调度标志
       if(p->remaining_ticks <= 0) {
 #if MLFQ_DEBUG
         int old_level = p->queue_level;
 #endif
-        if(p->queue_level < 2) { // 不在最低队列
-          p->queue_level++;      // 降级到下一队列
+        if(p->queue_level < 2) { 
+          p->queue_level++;
         }
-        // 设置新队列的时间片
         switch(p->queue_level) {
           case 0: p->remaining_ticks = Q0_TICKS; break;
           case 1: p->remaining_ticks = Q1_TICKS; break;
           case 2: p->remaining_ticks = Q2_TICKS; break;
         }
 #if MLFQ_DEBUG
-        if(old_level!=p->queue_level){
-          printf("[DEMOTE] PID %d demoted from level %d to %d (reset ticks=%d)\n", p->pid, old_level, p->queue_level, p->remaining_ticks);
-        }
+        printf("[DEMOTE] PID %d demoted from level %d to %d (reset ticks=%d)\n", p->pid, old_level, p->queue_level, p->remaining_ticks);
 #endif
       }
       release(&p->lock);
-    }
+    }//DONE.
     yield();
   }
 
@@ -203,7 +198,7 @@ clockintr()
       acquire(&promote_lock);
       promote_needed = 1;
       release(&promote_lock);
-    }
+    }//DONE.
     wakeup(&ticks);
     release(&tickslock);
   }

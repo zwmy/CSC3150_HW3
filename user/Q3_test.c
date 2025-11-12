@@ -28,7 +28,7 @@ void cpu_worker(int id, int duration) {
             printf("[PRIORITY] PID %d (CPU Worker %d) at priority level %d, completed %d/%d work units\n", 
                       pid, id, getpriority(), i, work_units);
         }
-    }
+    }//DONE. 
     
     printf("[Finish] PID %d (CPU Worker %d) completed all %d work units\n", 
                   pid, id, work_units);
@@ -47,7 +47,7 @@ void io_worker(int id, int duration) {
         printf("[PRIORITY] PID %d (IO Worker %d) at priority level %d, completed operation %d/%d\n", 
                       pid, id, getpriority(), i + 1, io_operations);
         pause(1);        
-    }
+    }//DONE. 
     
     printf("[TEST] PID %d (IO Worker %d) completed all %d IO operations\n", 
                   pid, id, io_operations);
@@ -68,7 +68,7 @@ void mixed_worker(int id, int duration) {
                       pid, id, getpriority(), i + 1, cycles);
         pause(8);
         busy_wait(50);
-    }
+    }//DONE. 
     printf("[TEST] PID %d (Mixed Worker %d) completed all %d cycles\n", 
                   pid, id, cycles);
     exit(0);
@@ -76,7 +76,7 @@ void mixed_worker(int id, int duration) {
 
 int main(int argc, char *argv[]) {
 
-    printf("[PARENT] PID %d at priority level %d\n", getpid(), getpriority());
+    printf("[PARENT] PID %d at priority level %d\n", getpid(), getpriority());//DONE. 
     
     printf("\n");
     printf("===============================================\n");
@@ -90,9 +90,10 @@ int main(int argc, char *argv[]) {
         if (fork() == 0) io_worker(1, 2000);      
         if (fork() == 0) cpu_worker(1, 250000); 
         if (fork() == 0) cpu_worker(2, 180000);    
-        if (fork() == 0) io_worker(2, 2200);     
+        if (fork() == 0) io_worker(2, 2200);      
+        if (fork() == 0) mixed_worker(1, 10000);//DONE. 
     int children = 0;
-    children = 5;
+    children = 6;
 
     
     printf("[TEST] Waiting for %d child processes to complete...\n", children);
@@ -112,6 +113,6 @@ int main(int argc, char *argv[]) {
     printf("=           Processes completed: %d          =\n", completed);
     printf("===============================================\n\n");
     
-    printf("[PARENT] PID %d at priority level %d\n", getpid(), getpriority());
+    printf("[PARENT] PID %d at priority level %d\n", getpid(), getpriority());//DONE. 
     exit(0);
 }

@@ -109,7 +109,7 @@ sys_uptime(void)
 }
 
 uint64
-sys_getpriority(void)
+sys_getpriority(void)//DONE. 
 {
   struct proc *p = myproc();
   return p->queue_level;

@@ -6,37 +6,33 @@
 #include "proc.h"
 #include "defs.h"
 
-#define MLFQ_DEBUG 1
+#define MLFQ_DEBUG 1 //be used for print info. DONE.
 
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
 
 struct proc_queue queues[NQUEUE]; // Q0, Q1, Q2
-struct spinlock queue_locks[NQUEUE]; // 每个队列的锁
-
+struct spinlock queue_locks[NQUEUE]; // locks for each queue.
 int promote_needed = 0;
 struct spinlock promote_lock;
-// 将进程添加到队列尾部
 void enqueue_proc(struct proc *p, int level) {
   acquire(&queue_locks[level]);
   if(p==0);
   else if (queues[level].head == 0) {
-    // 队列为空
+    // empty
     queues[level].head = p;
     queues[level].tail = p;
     p->next_in_queue = 0;
   } else {
-    // 添加到队列尾部
     queues[level].tail->next_in_queue = p;
     queues[level].tail = p;
     p->next_in_queue = 0;
   }
   
   release(&queue_locks[level]);
-}
+}//DONE.
 
-// 从队列头部移除进程
 struct proc* dequeue_proc(int level) {
   acquire(&queue_locks[level]);
   
@@ -51,20 +47,19 @@ struct proc* dequeue_proc(int level) {
   
   release(&queue_locks[level]);
   return p;
-}
+}//DONE.
 
-// 从队列中移除特定进程（用于进程状态变化时）
 void remove_from_queue(struct proc *p, int level) {
   acquire(&queue_locks[level]);
   if(p==0);
   else if (queues[level].head == p) {
-    // 进程在队列头部
+    // head
     queues[level].head = p->next_in_queue;
     if (queues[level].tail == p) {
       queues[level].tail = 0;
     }
   } else {
-    // 在队列中间查找
+    // inner
     struct proc *prev = queues[level].head;
     while (prev != 0 && prev->next_in_queue != p) {
       prev = prev->next_in_queue;
@@ -79,7 +74,7 @@ void remove_from_queue(struct proc *p, int level) {
   p->next_in_queue = 0;
   
   release(&queue_locks[level]);
-}
+}//DONE.
 
 struct proc *initproc;
 
@@ -133,28 +128,23 @@ procinit(void)
     queues[i].tail = 0;
     initlock(&queue_locks[i], "queue_lock");
   }
-  
-  initlock(&promote_lock, "promote_lock");
+  initlock(&promote_lock, "promote_lock");//DONE.
 }
 
 
 void
-promote_processes(void) {//TODO
-  // 提升Q1和Q2中的所有进程到Q0
+promote_processes(void) {
+  //promote all processes form Q1 or Q2 into Q0
   for(int level = 1; level <= 2; level++) {
     struct proc *to_promote_head = 0;
     struct proc *to_promote_tail = 0;
 
-    // 在持有队列锁的情况下，从队列中摘出需要提升的进程，
-    // 并把它们串成一个临时链表 (使用 next_in_queue 字段)。
     acquire(&queue_locks[level]);
     struct proc *prev = 0;
     struct proc *current = queues[level].head;
     while(current != 0) {
       struct proc *next = current->next_in_queue;
-      // 只在队列锁下检查并移除节点，不获取 p->lock，避免死锁
       if(current->state == RUNNABLE) {
-        // 从队列中摘除 current
         if(prev == 0) {
           queues[level].head = next;
         } else {
@@ -164,7 +154,6 @@ promote_processes(void) {//TODO
           queues[level].tail = prev;
         }
 
-        // 把 current 插入到本地待提升链表尾部
         current->next_in_queue = 0;
         if(to_promote_tail == 0) {
           to_promote_head = to_promote_tail = current;
@@ -172,7 +161,6 @@ promote_processes(void) {//TODO
           to_promote_tail->next_in_queue = current;
           to_promote_tail = current;
         }
-        // prev 不变，因为 current 已被移除
       } else {
         prev = current;
       }
@@ -180,44 +168,39 @@ promote_processes(void) {//TODO
     }
     release(&queue_locks[level]);
 
-    // 现在对每个要提升的进程获取 p->lock，更新其队列信息并加入 Q0。
     current = to_promote_head;
     while(current != 0) {
       struct proc *nxt = current->next_in_queue;
       acquire(&current->lock);
-      // 可能状态在此间发生变化，再次确认
       if(current->state == RUNNABLE) {
-  int old_level = current->queue_level;
-  current->queue_level = 0;
-  current->remaining_ticks = Q0_TICKS;
+        int old_level = current->queue_level;
+        current->queue_level = 0;
+        current->remaining_ticks = Q0_TICKS;
 #if MLFQ_DEBUG
-  printf("[PROMOTE] PID %d promoted from level %d to 0\n", current->pid, old_level);
+        printf("[PROMOTE] PID %d promoted from level %d to 0\n", current->pid, old_level);
 #endif
       }
       release(&current->lock);
 
-      // 将其加入 Q0 队列（enqueue_proc 会获取 Q0 的队列锁）
       enqueue_proc(current, 0);
 
       current = nxt;
     }
 
-    // 还要提升正在 RUNNING 的进程（它们不在队列中），但不提升 SLEEPING 的进程。
-    // 这些进程不会被加入队列（因为它们当前在运行），但将它们的 queue_level 设置为 0
-    // 以便下一次让出 CPU 回到 Q0。
+    // for RUNNING (not in queue), not adding into queue, but set queue_level = 0
     for(struct proc *pp = proc; pp < &proc[NPROC]; pp++) {
       acquire(&pp->lock);
       if(pp->state == RUNNING && pp->queue_level > 0) {
 #if MLFQ_DEBUG
-  printf("[PROMOTE] PID %d (RUNNING) promoted from level %d to 0\n", pp->pid, pp->queue_level);
+        printf("[PROMOTE] PID %d (RUNNING) promoted from level %d to 0\n", pp->pid, pp->queue_level);
 #endif
-  pp->queue_level = 0;
-  pp->remaining_ticks = Q0_TICKS;
+        pp->queue_level = 0;
+        pp->remaining_ticks = Q0_TICKS;
       }
       release(&pp->lock);
     }
   }
-}
+}//DONE.
 
 
 // Must be called with interrupts disabled,
@@ -288,10 +271,10 @@ found:
   p->state = USED;
 
 
-  p->queue_level = 0;           // 新进程从Q0开始
-  p->remaining_ticks = Q0_TICKS; // Q0时间片为3 ticks
-  p->original_queue = 0;        // 原始队列为Q0
-  enqueue_proc(p, 0);
+  p->queue_level = 0; 
+  p->remaining_ticks = Q0_TICKS; 
+  p->original_queue = 0;
+  enqueue_proc(p, 0);//DONE.
 
 
   // Allocate a trapframe page.
@@ -604,7 +587,7 @@ scheduler(void)
     // to avoid a possible race between an interrupt
     // and wfi.
     intr_on();
-    intr_off();//TODO
+    intr_off();
 
 
     acquire(&promote_lock);
@@ -618,22 +601,18 @@ scheduler(void)
 
 
     int found = 0;
-     // 按优先级顺序检查队列：Q0 → Q1 → Q2
+    //Q0 -> Q1 -> Q2
     for(int level = 0; level < NQUEUE && !found; level++) {
-      // 尝试从当前队列获取一个进程
       p = dequeue_proc(level);
       if(p != 0) {
         acquire(&p->lock);
         if(p->state == RUNNABLE) {
-          // 运行进程
           p->state = RUNNING;
           c->proc = p;
           swtch(&c->context, &p->context);
           
-          // 进程运行结束或让出CPU
           c->proc = 0;
-          // 如果进程仍然是RUNNABLE状态，将其放回队列尾部（轮转调度）
-          if(p->state == RUNNABLE) {//TODO
+          if(p->state == RUNNABLE) {
             enqueue_proc(p, p->queue_level);
           }
           found = 1;
@@ -647,7 +626,7 @@ scheduler(void)
       asm volatile("wfi");
     }
   }
-}
+}//DONE.
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -746,7 +725,7 @@ sleep(void *chan, struct spinlock *lk)
   p->state = SLEEPING;
 
   p->original_queue = p->queue_level;
-  remove_from_queue(p, p->queue_level);
+  remove_from_queue(p, p->queue_level);//DONE.
 
   sched();
 
@@ -775,9 +754,9 @@ wakeup(void *chan)
         switch(p->queue_level) {
           case 0: p->remaining_ticks = Q0_TICKS; break;
           case 1: p->remaining_ticks = Q1_TICKS; break;
-          case 2: p->remaining_ticks = Q2_TICKS; break;//TODO
+          case 2: p->remaining_ticks = Q2_TICKS; break;
         }
-        enqueue_proc(p, p->queue_level);
+        enqueue_proc(p, p->queue_level);//DONE.
 
       }
       release(&p->lock);

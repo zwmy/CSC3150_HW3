@@ -86,7 +86,7 @@ enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 #define Q1_TICKS 12  
 #define Q2_TICKS 24
 #define PROMOTION_INTERVAL 100
-#define NQUEUE 3
+#define NQUEUE 3//DONE. 
 
 // Per-process state
 struct proc {
@@ -99,10 +99,10 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
 
-  struct proc *next_in_queue; // 队列中的下一个进程
-  int queue_level;        // 当前队列级别 (0,1,2)
-  int remaining_ticks;    // 当前时间片剩余tick数
-  int original_queue;     // 原始队列（用于I/O阻塞后恢复）
+  struct proc *next_in_queue; // next proc in queue DONE. 
+  int queue_level;        // (0,1,2) DONE. 
+  int remaining_ticks;    // for one proc. in this queue level DONE. 
+  int original_queue;     // be used for weak() DONE. 
 
 
   // wait_lock must be held when using this:
@@ -124,4 +124,4 @@ extern struct spinlock promote_lock;
 struct proc_queue {
   struct proc *head;
   struct proc *tail;
-};
+};//DONE. 
