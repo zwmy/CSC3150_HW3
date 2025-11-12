@@ -103,6 +103,8 @@ struct proc {
   int queue_level;        // (0,1,2) DONE. 
   int remaining_ticks;    // for one proc. in this queue level DONE. 
   int original_queue;     // be used for weak() DONE. 
+  int creation_time;      //DONE.
+  int first_run_time;     //DONE.
 
 
   // wait_lock must be held when using this:

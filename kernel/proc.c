@@ -6,7 +6,7 @@
 #include "proc.h"
 #include "defs.h"
 
-#define MLFQ_DEBUG 1 //be used for print info. DONE.
+#define MLFQ_DEBUG 1//be used for print info. DONE.
 
 struct cpu cpus[NCPU];
 
@@ -173,7 +173,9 @@ promote_processes(void) {
       struct proc *nxt = current->next_in_queue;
       acquire(&current->lock);
       if(current->state == RUNNABLE) {
+#if MLFQ_DEBUG
         int old_level = current->queue_level;
+#endif
         current->queue_level = 0;
         current->remaining_ticks = Q0_TICKS;
 #if MLFQ_DEBUG
@@ -274,6 +276,10 @@ found:
   p->queue_level = 0; 
   p->remaining_ticks = Q0_TICKS; 
   p->original_queue = 0;
+  if((p->pid)>3){
+    p->creation_time = ticks;
+    p->first_run_time = -1;
+  }
   enqueue_proc(p, 0);//DONE.
 
 
@@ -611,6 +617,11 @@ scheduler(void)
           c->proc = p;
           swtch(&c->context, &p->context);
           
+          if((p->pid)>3 && p->first_run_time == -1) {
+            p->first_run_time = ticks;
+            int response_time = p->first_run_time - p->creation_time;
+            printf("\n[RESPONSE] PID %d: Response Time = %d ticks\n", p->pid, response_time);
+          }
           c->proc = 0;
           if(p->state == RUNNABLE) {
             enqueue_proc(p, p->queue_level);

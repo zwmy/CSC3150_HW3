@@ -106,6 +106,10 @@ usertrap(void)
         printf("[DEMOTE] PID %d demoted from level %d to %d (reset ticks=%d)\n", p->pid, old_level, p->queue_level, p->remaining_ticks);
 #endif
       }
+#if MLFQ_DEBUG
+      printf("PID %d running at t = %d (ticks in queue = %d) (in Q%d).\n", 
+                   p->pid, ticks, p->remaining_ticks, p->queue_level);
+#endif
       release(&p->lock);
     }//DONE.
     yield();

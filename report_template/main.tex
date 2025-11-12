@@ -1,0 +1,289 @@
+\documentclass{article}
+\usepackage{graphicx, nips} % Required for inserting images
+
+\title{Assignment Report: CSC3150 Assignment 3}
+\author{Wangmeiyu Zhang - 123090825}
+
+\begin{document}
+\maketitle
+All the screen shoots (testcase output) can be found under the source code folder 'screenshoots'.
+
+The test file is 'Q3\_test.c' (same as 'Q3\_test.c' under 'user' folder). You can try other test cases using cpu\_worker(), io\_worker() and mixed\_worker().
+
+The comments highlighting key changes has been added into the source code with 'DONE.'.
+\section{Introduction [2']}
+
+This assignment implements a 3-level priority queue scheduler for the xv6-riscv operating system. The original xv6 uses a simple round-robin scheduler, which this assignment enhances by introducing multiple priority queues with different time slices and anti-starvation mechanisms. New processes start in the highest priority queue Q0; processes that use their entire time slice are demoted to the next lower queue; processes that block on I/O return to their original queue when woken; every 100 ticks, all processes in Q1 and Q2 are promoted to Q0 to prevent starvation; and processes within the same queue are scheduled in a Round-Robin manner. The implementation involved significant modifications to the process scheduling subsystem, including data structure changes, timer interrupt handling, and the introduction of new scheduling policies.
+
+The modifications were made to \texttt{proc.c}, \texttt{proc.h}, \texttt{trap.c}, \texttt{syscall.c}, \texttt{syscall.h}, \texttt{defs.h}, \texttt{sysproc.c}, \texttt{user.h}, \texttt{usys.pl}, \texttt{Makefile}, and the test program \texttt{Q3\_test.c} was modified to validate the implementation. The new scheduler effectively balances responsiveness for interactive processes while maintaining fairness through periodic promotions. 
+\section{Design [5']}
+
+\subsection{Scheduling Algorithm Design}
+
+The 3-level priority queue scheduler operates on the following principles:
+
+\begin{itemize}
+    \item \textbf{Three Priority Queues:} (Modified a little bit for better performance) Newly created processes start in Q0. Each queue is implemented using link list.
+    \begin{itemize}
+        \item Q0: Highest priority with shortest time slice (6 ticks)
+        \item Q1: Medium priority with medium time slice (12 ticks) 
+        \item Q2: Lowest priority with longest time slice (24 ticks)
+    \end{itemize}
+    
+    \item \textbf{Process Migration:} On each clock interrupt, the currently running process's time slice is decremented. Processes that use their entire time slice are demoted to the next lower queue (Q0 → Q1 → Q2), what in Q2 will still in Q2 after demotion.
+    
+    \item \textbf{I/O Handling:} If a process voluntarily relinquishes the CPU (e.g., by calling \texttt{sleep()}), it returns to its original queue upon waking. 
+    
+    \item \textbf{Anti-Starvation:} Every 100 ticks, all processes (except sleeping processed) in Q1 and Q2 are promoted to Q0. This project check all processed in queue by travling the link list, which means promotion will not affect the relative order. For RUNNING processes, this project change its level to 0 but not add it into the queue (since it is not in the RUNNABLE queue when RUNNING). In this way, it could go to Q0 after RUNNING.
+    
+    \item \textbf{Intra-queue Scheduling:} Processes within the same queue are scheduled using round-robin
+\end{itemize}
+
+
+\subsection{Key Data Structures}
+In \texttt{proc.h}, the process control block (\texttt{struct proc}) is extended with the following fields:
+\begin{verbatim}
+  struct proc *next_in_queue; // next proc in queue
+  int queue_level;        // (0,1,2)
+  int remaining_ticks;    // for one proc. in this queue level 
+  int original_queue;     // be used for wake() 
+\end{verbatim}
+In \texttt{proc.c}, three queues (linked lists) are defined to hold ready processes. The \texttt{scheduler()} function checks these queues in order from highest to lowest priority for runnable processes.
+
+
+\subsection{Algorithm Implementation}
+
+The scheduling algorithm was implemented through several key functions:
+
+\begin{enumerate}
+    \item \textbf{Process Initialization:} New processes start in Q0 with 3-tick time slice
+    \item \textbf{Scheduler Loop:} The scheduler selects processes from highest to lowest priority queue
+    \item \textbf{Time Slice Management:} Timer interrupts track time slice usage and trigger queue transitions
+    \item \textbf{Promotion Mechanism:} Global timer tracks 100-tick intervals for anti-starvation promotions
+\end{enumerate}
+
+\subsection{Key Code Modifications}
+
+\subsubsection{Scheduler Implementation (\texttt{proc.c})}
+
+Modified the scheduler to implement multi-level queue scheduling:
+
+\begin{verbatim}
+void scheduler(void) {
+  for(;;) {
+    intr_on();
+    intr_off();// prevent dead lock
+
+
+    acquire(&promote_lock);//using lock
+    if (promote_needed) {
+      promote_needed = 0;// global variable
+      release(&promote_lock);
+      promote_processes();//promote all processed in Q1 and Q2 to Q0
+    } else {
+      release(&promote_lock);
+    }
+
+
+    // Check each priority queue from highest to lowest
+    for(int level = 0; level < NQUEUE && !found; level++) {
+        p = dequeue_proc(level);
+        //Does not acquire and release queue lock,
+        //since it works for dequeue and has implemented in dequeue_proc()
+        if(p != 0) {
+            // Switch to chosen process
+            acquire(&p->lock);
+            if(p->state == RUNNABLE) {
+                p->state = RUNNING;
+                c->proc = p;
+                swtch(&c->context, &p->context);
+                
+                c->proc = 0;
+                if(p->state == RUNNABLE) {
+                    enqueue_proc(p, p->queue_level);
+                }
+                found = 1;
+                release(&p->lock);
+            }
+        }
+    }
+    
+    if(found == 0) {
+      // nothing to run; stop running on this core until an interrupt.
+      asm volatile("wfi");
+    }
+  }
+}
+\end{verbatim}
+
+\subsubsection{Timer Interrupt Handling (\texttt{trap.c})}
+
+Enhanced timer interrupt handling to manage time slices and queue promotions:
+
+\begin{verbatim}
+void usertrap(void) {
+  // ...
+    if(which_dev == 2){
+        // Timer interrupt
+        struct proc *p = myproc();
+        if(p != 0 && p->state == RUNNING) {
+            acquire(&p->lock);
+            if(p->remaining_ticks > 0) {
+                p->remaining_ticks--;
+            }
+            // Check if process used its entire time slice
+            if(p->remaining_ticks <= 0) {
+                // Demote process to next lower queue
+                if(p->queue_level < 2) { 
+                    p->queue_level++;
+                }
+                switch(p->queue_level) {
+                    case 0: p->remaining_ticks = Q0_TICKS; break;
+                    case 1: p->remaining_ticks = Q1_TICKS; break;
+                    case 2: p->remaining_ticks = Q2_TICKS; break;
+                }
+            }
+            release(&p->lock);
+        }
+        yield();
+    }
+  // ...
+}
+\end{verbatim}
+
+\subsubsection{System Call for Testing (\texttt{sysproc.c})}
+
+Added a system call to allow user programs to query their current queue:
+
+\begin{verbatim}
+uint64
+sys_getpriority(void)
+{
+  struct proc *p = myproc();
+  return p->queue_level;
+}
+\end{verbatim}
+
+
+\subsubsection{Others}
+
+\begin{enumerate}
+    \item \texttt{proc.c}: In \texttt{allocproc}, new processes are initialized with priority 0 (Q0) and a time slice. Locks are initialized. Queue operations are done in \texttt{promote\_processes}, \texttt{remove\_from\_ queue},\texttt{dequeue\_proc} and \texttt{enqueue\_proc}.For system calls like \texttt{sleep}, the original queue is recorded when the process blocks and restored upon wake-up.
+    \item \texttt{trap.c}: In \texttt{clockintr}, every 100 ticks, global variable is set for calling to move all Q1 and Q2 processes to Q0.
+    \item \texttt{Q3\_test.c}: A test program is written to create multiple CPU-intensive,  I/O-intensive and Mix processes, observing their migration between queues.
+\end{enumerate}
+
+\section{Environment and Execution [2']}
+
+\subsection{Running Environment}
+The experiment is conducted on xv6-riscv using the QEMU emulator. The compilation environment is Ubuntu 20.04. Multi kernel CPU.
+
+\subsection{Execution Instructions}
+\begin{verbatim}
+$ make clean
+$ make qemu
+\end{verbatim}
+
+To run the test program inside xv6:
+\begin{verbatim}
+$ Q3_test
+\end{verbatim}
+
+If you want to print informations (as shown in pictures), please set 'MLFQ\_DEBUG' in \texttt{proc.c}, \texttt{trap.c}, and \texttt{Q3\_test.c} as 1 (as the submitted codes).
+Otherwise, please those to 0 (i.e. '\#define MLFQ\_DEBUG 0' rather than '\#define MLFQ\_DEBUG 1'). Then this project will show defalut information as given Q3\_test.c template, 'Throughput' and 'Response'.
+
+
+
+\subsection{Test Cases and Expected Output}
+The test program creates three types of processes:
+\begin{itemize}
+    \item \textbf{CPU-intensive}: Long CPU usage, gradually demoted from Q0 to Q2. Promoted to Q0 every 100 ticks.
+    \item \textbf{I/O-intensive}: Frequent \texttt{sleep()} calls, mostly remaining in Q0.
+    \item \textbf{Mixed}: Alternating CPU and I/O usage.
+\end{itemize}
+For simplify, this report only shows key outputs. You can find the whole screen shoots under the source code floder.
+\clearpage
+\includegraphics[height=18cm]{1.png}
+\clearpage
+\includegraphics[height=18cm]{2.png}
+\clearpage
+\includegraphics[height=18cm]{3.png}
+\clearpage
+\includegraphics[height=18cm]{4.png}
+\clearpage
+
+
+The test results align with the design rules, confirming correct implementation of priority queue promotion, demotion, and starvation prevention.
+
+
+\subsection{Comparison with Original RR Scheduler}
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Metric} & \textbf{Original RR} & \textbf{3-level Queue} \\
+\hline
+Response Time (PID 4) & 0 & 1 \\
+Response Time (PID 5) & 1 & 1 \\
+Response Time (PID 6) & 1 & 1 \\
+Response Time (PID 7) & 1 & 1 \\
+Response Time (PID 8) & 1 & 1 \\
+Throughput & 81 & 72.6 \\
+\hline
+\end{tabular}
+\caption{Performance Comparison}
+\end{table}
+
+\subsection{Key Differences}
+
+\begin{itemize}
+    \item \textbf{Response Time:} Both have similar and small Response Time.
+    \item \textbf{Throughput:} The 3-level queue scheduler provides smaller throughput.
+\end{itemize}
+
+\subsection{Challenges and Solutions}
+
+\begin{enumerate}
+    \item \textbf{Queue Management:} Maintaining three separate queues while ensuring efficient process selection
+    \begin{itemize}
+        \item \textbf{Solution:} Used simple link list approach with queue levels stored in process structures
+    \end{itemize}
+    
+    \item \textbf{Time Slice Tracking:} Accurately tracking time slice usage across context switches
+    \begin{itemize}
+        \item \textbf{Solution:} Used the existing timer interrupt mechanism with per-process tick counters
+    \end{itemize}
+    
+    \item \textbf{I/O Process Handling:} Ensuring I/O-bound processes return to their original queues
+    \begin{itemize}
+        \item \textbf{Solution:} Stored original queue information and restored it after I/O completion
+    \end{itemize}
+    
+    \item \textbf{Global Promotion Timing:} Implementing the 100-tick promotion without interfering with normal scheduling
+    \begin{itemize}
+        \item \textbf{Solution:} Used a global counter that increments on each timer interrupt
+    \end{itemize}
+\end{enumerate}
+Note that I set 'MLFQ\_DEBUG' as '0' and use same Q3\_test.c(as submitted, but '\#define MLFQ\_DEBUG 0') in both part for fairness.
+
+Original RR
+\includegraphics[height=16cm]{ori.png}
+
+3-level Queue.
+\includegraphics[height=15cm]{que.png}
+
+\section{Conclusion [2']}
+
+This assignment successfully implemented a 3-level priority queue scheduler for xv6-riscv that provides better responsiveness for interactive processes while maintaining fairness through anti-starvation mechanisms. The implementation demonstrates several important operating system concepts:
+
+\begin{itemize}
+    \item Priority-based scheduling algorithms and their trade-offs
+    \item Time slice management and process state tracking
+    \item Anti-starvation mechanisms in priority schedulers
+    \item Integration of new scheduling policies into existing OS kernels
+\end{itemize}
+
+The multi-level queue approach strikes a good balance between performance for interactive tasks and fairness for CPU-bound processes. The periodic promotion mechanism effectively addresses the starvation problem common in pure priority schedulers.
+
+
+\end{document}
