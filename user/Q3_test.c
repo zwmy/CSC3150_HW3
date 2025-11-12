@@ -76,6 +76,7 @@ void mixed_worker(int id, int duration) {
 
 int main(int argc, char *argv[]) {
 
+    printf("[PARENT] PID %d at priority level %d\n", getpid(), getpriority());
     
     printf("\n");
     printf("===============================================\n");
@@ -110,5 +111,7 @@ int main(int argc, char *argv[]) {
     printf("===============================================\n");
     printf("=           Processes completed: %d          =\n", completed);
     printf("===============================================\n\n");
+    
+    printf("[PARENT] PID %d at priority level %d\n", getpid(), getpriority());
     exit(0);
 }
